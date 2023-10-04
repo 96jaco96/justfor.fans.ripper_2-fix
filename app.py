@@ -1,12 +1,12 @@
 import os
-import sys
 import json
 import config
 import requests
 import urllib.request
+import subprocess
+import re
 
 from bs4 import BeautifulSoup
-
 from Class.JJFPost import JJFPost
 
 def create_folder(tpost):
@@ -17,44 +17,8 @@ def create_folder(tpost):
     
     return fpath
 
-def photo_save(ppost):
-    ii = 1
-    photos_url = []
-
-    photos_img = ppost.post_soup.select('div.imageGallery.galleryLarge img.expandable')
-
-    if len(photos_img) == 0:
-        ii = -1
-        photos_img.append(ppost.post_soup.select('img.expandable')[0])
-
-    for img in photos_img:
-
-        imgsrc = img.attrs['src']
-        ext = imgsrc.split('.')[-1]
-        
-        ppost.photo_seq = ii
-        ppost.ext = ext
-        ppost.prepdata()
-
-        folder = create_folder(ppost)
-        ppath = os.path.join(folder, ppost.title)
-
-        if not config.overwrite_existing and os.path.exists(ppath):
-            print(f'p: <<exists skip>>: {ppath}')
-            ii += 1
-            continue
-
-        photos_url.append([
-            ppath, imgsrc
-        ])
-
-        ii += 1
-    
-    for img in photos_url:
-        print(f'p: {img[0]}')
-        urllib.request.urlretrieve(img[1], img[0])
-
 def video_save(vpost):
+
     vpost.ext = 'mp4'
     vpost.prepdata()
 
@@ -72,20 +36,43 @@ def video_save(vpost):
     vpost.url_vid = vidurl.get('540p', '') if vpost.url_vid == '' else vpost.url_vid
 
     print(f'v: {vpath}')
-    urllib.request.urlretrieve(vpost.url_vid, vpath)
 
-def text_save(tpost):
-    tpost.ext = 'txt'
-    tpost.prepdata()
+    folder_path = os.path.dirname(vpath)
+    temp_m3u8_path = os.path.join(folder_path, 'playlist.m3u8')
+    temp_video_file = os.path.join(folder_path, 'video.mp4')
+    temp_audio_file = os.path.join(folder_path, 'audio.mp4')
 
-    folder = create_folder(tpost)
-    tpath = os.path.join(folder, tpost.title)
+    # Step 1: Download the m3u8 content to a temporary file
+    urllib.request.urlretrieve(vpost.url_vid, temp_m3u8_path)
 
-    print(f't: {tpath}')
+    # Step 2: Parse the m3u8 content and find audio and video URLs using regex
+    audio_url = None
+    video_url = None
+    with open(temp_m3u8_path, 'r') as m3u8_file:
+        m3u8_content = m3u8_file.read()
+        audio_match = re.search(r'https://autograph\.xvid\.com/.*?audio\.m3u8', m3u8_content)
+        video_match = re.search(r'https://autograph\.xvid\.com/.*?video\.m3u8', m3u8_content)
+        if audio_match:
+            audio_url = audio_match.group(0)
+        if video_match:
+            video_url = video_match.group(0)
 
-    text_file = open(tpath, "w", encoding='utf-8')
-    text_file.write(tpost.full_text)
-    text_file.close()
+    # Step 3: Use yt-dlp to download audio and video files
+    if audio_url:
+        subprocess.run(['yt-dlp', '-o', temp_audio_file, audio_url])
+    if video_url:
+        subprocess.run(['yt-dlp', '-o', temp_video_file, video_url])
+
+    # Step 4: Use ffmpeg to merge audio and video
+    subprocess.run(['ffmpeg', '-i', temp_video_file, '-i', temp_audio_file, '-c:v', 'copy', '-c:a', 'aac', vpath])
+
+    # Step 5: Clean up temporary files
+    os.remove(temp_m3u8_path)
+    if audio_url:
+        os.remove(temp_audio_file)
+    if video_url:
+        os.remove(temp_video_file)
+
 
 def parse_and_get(html_text):
     soup = BeautifulSoup(html_text, 'html.parser')
@@ -101,7 +88,7 @@ def parse_and_get(html_text):
 
         thispost = JJFPost()
         thispost.post_soup = pp
-        thispost.name = name
+        thispost.name = pp.select('h5.mbsc-card-title.mbsc-bold span')[0].text
         thispost.post_date_str = post_date.strip()
         thispost.post_id = pp.attrs['id']
         thispost.full_text = ptext[0].text.strip() if ptext else ''
@@ -113,28 +100,10 @@ def parse_and_get(html_text):
             thispost.type = 'video'
             video_save(thispost)
 
-            if config.save_full_text:
-                #thispost.type = 'text'
-                text_save(thispost)
-
-        elif 'photo' in classvals:
-            thispost.type = 'photo'
-            photo_save(thispost)
-
-            if config.save_full_text:
-                #thispost.type = 'text'
-                text_save(thispost)
-                
-        elif 'text' in classvals:
-            if config.save_full_text:
-                thispost.type = 'text'
-                text_save(thispost)
-
 if __name__ == "__main__":
 
-    uid = sys.argv[1]
-    hsh = sys.argv[2]
-
+    uid = ""
+    hsh = ""
     api_url = config.api_url
 
     loopit = True
@@ -147,7 +116,8 @@ if __name__ == "__main__":
         if 'as sad as you are' in html_text:
             loopit = False
         else:
-            parse_and_get(html_text)
+            try:
+                parse_and_get(html_text)
+            except:
+                pass
             loopct += 10
-
-

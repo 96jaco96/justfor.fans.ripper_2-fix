@@ -1,6 +1,5 @@
 overwrite_existing = False
 save_path = r""
-save_full_text = True
 
 # AVAILABLE FIELDS
 #  name
