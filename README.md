@@ -25,3 +25,4 @@
 ![image](https://user-images.githubusercontent.com/12958294/115130004-859a5580-9fa0-11eb-9275-235d4ec51967.png)
 
 ## NOTE: This is a really ghetto implementation of a quickfix to make this abandoned project "just work" maybe i'll write it better in the future maybe not... idk ENJOY!
+### also NOTE:this ONLY downloads video and nothing else now
